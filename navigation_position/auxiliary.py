@@ -242,9 +242,30 @@ def combine_temporal_keys(data, keys, filt_func=None, tzf=None, tbeg=0, tend=Non
     return out
 
 
-def find_crossings(trl_pos, border=500, thresh=2):
+def sample_time_within_times(
+    data, buffer=100, beg="nav_start", end="nav_end", ref_t="first_border_crossing_x"
+):
+    bts = data[beg]
+    ets = data[end]
+    rts = data[ref_t]
+    rng = np.random.default_rng()
+    out_ts = []
+    for i, bt in enumerate(bts):
+        prop_distr = (rts[i] - bt) / (ets[i] - bt)
+        mask = ~np.isnan(prop_distr)
+        prop_use = rng.choice(prop_distr[mask], size=len(bt), replace=True)
+        ts_i = prop_use * (ets[i] - bt) + bt
+        out_ts.append(ts_i)
+    return out_ts
+
+
+def find_crossings(trl_pos, border=500, thresh=2, return_first=True):
     cross_times = np.zeros(len(trl_pos), dtype=object)
     cross_dir = np.zeros(len(trl_pos), dtype=object)
+    first_cross_time = np.zeros(len(trl_pos))
+    first_cross_dir = np.zeros(len(trl_pos))
+    first_cross_time[:] = np.nan
+    first_cross_dir[:] = np.nan
     for i, trl in enumerate(trl_pos.to_numpy()):
         ms_times = np.arange(len(trl))
         relative_border = trl - border
@@ -253,7 +274,7 @@ def find_crossings(trl_pos, border=500, thresh=2):
         slices = snd.find_objects(labels, num_objs)
         cross_times_i = []
         cross_dir_i = []
-        for sli in slices:
+        for j, sli in enumerate(slices):
             event_pos = relative_border[sli]
             s_pre = np.sign(event_pos[0])
             s_post = np.sign(event_pos[-1])
@@ -264,9 +285,15 @@ def find_crossings(trl_pos, border=500, thresh=2):
             if cross:
                 cross_times_i.append(time_i)
                 cross_dir_i.append(direction)
+                if j == 0:
+                    first_cross_time[i] = time_i
+                    first_cross_dir[i] = direction
         cross_times[i] = cross_times_i
         cross_dir[i] = cross_dir_i
-    return cross_times, cross_dir
+    out = (cross_times, cross_dir)
+    if return_first:
+        out = out + (first_cross_time, first_cross_dir)
+    return out
 
 
 def get_relevant_crossing(crossings, crossing_dirs, decision_times):
@@ -713,10 +740,16 @@ def load_gulli_hashim_data_folder(
         data_all["n_waypoints"] = n_wpts
 
         out = find_crossings(data_all["pos_x"])
-        data_all["border_crossing_x"], data_all["border_crossing_x_dir"] = out
+        data_all["border_crossing_x"], data_all["border_crossing_x_dir"] = out[:2]
+        data_all["first_border_crossing_x"], data_all["first_border_crossing_x_dir"] = (
+            out[2:]
+        )
 
         out = find_crossings(data_all["pos_y"])
-        data_all["border_crossing_y"], data_all["border_crossing_y_dir"] = out
+        data_all["border_crossing_y"], data_all["border_crossing_y_dir"] = out[:2]
+        data_all["first_border_crossing_y"], data_all["first_border_crossing_y_dir"] = (
+            out[2:]
+        )
 
         out = get_relevant_crossing(
             data_all["border_crossing_x"],

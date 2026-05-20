@@ -43,6 +43,71 @@ def _make_kernel(ns, bins, sims, n_dims=1):
     return normalized
 
 
+def plot_decorated_ragged_decoding(
+    xs,
+    dec_out,
+    highlight_trials,
+    time_si=None,
+    axs=None,
+    fwid=4,
+    cmap="bwr",
+    pad_beg=False,
+):
+    if axs is None:
+        f, axs = plt.subplots(1, 2, figsize=(fwid * 2, fwid))
+    ax, ax2 = axs
+
+    pad_corrs = []
+    proj = u.collect_same_trial_over_folds(
+        dec_out["test_decision_function"],
+        dec_out["test_indices"],
+        ragged=True,
+    )
+    targ = u.collect_same_trial_over_folds(
+        dec_out["test_targets"],
+        dec_out["test_indices"],
+        ragged=True,
+    )
+
+    for ind, p_ind in proj.items():
+        xs_i = ak.to_numpy(xs[ind])
+        if ind in highlight_trials:
+            kw = {"lw": 1, "zorder": 100000}
+        else:
+            kw = {"lw": 0.1, "alpha": 0.2}
+        gpl.plot_colored_line(
+            xs_i,
+            np.mean(p_ind, axis=0),
+            col_inds=np.mean(targ[ind], axis=0) * 0.9,
+            cmap="bwr",
+            ax=ax2,
+            **kw,
+        )
+        if ind in highlight_trials and time_si is not None:
+            decorate_trajectory(
+                ax2,
+                {k: v[ind] for k, v in time_si.items()},
+                xs_i,
+                np.mean(p_ind, axis=0),
+                ci=np.mean(targ[ind], axis=0) * 0.9,
+            )
+
+    for i, pred in enumerate(dec_out["test_predictions"]):
+        corr = pred == dec_out["test_targets"][i]
+        corr_pad = u.ragged_to_padded(corr, pad_beginning=pad_beg)
+        pad_corrs.append(corr_pad)
+    pc_full = u.ragged_to_padded(pad_corrs, pad_beginning=pad_beg)
+
+    gpl.plot_trace_werr(
+        np.arange(pc_full.shape[-1]),
+        np.nanmean(pc_full, axis=1),
+        ax=ax,
+        confstd=True,
+    )
+    gpl.add_hlines(0.5, ax)
+    gpl.add_hlines(0, ax2)
+
+
 def decorate_trajectory(
     ax,
     times,

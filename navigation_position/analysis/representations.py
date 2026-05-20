@@ -14,6 +14,7 @@ import imblearn.under_sampling as imb_us
 import itertools as it
 import pandas as pd
 import awkward as ak
+import ragged
 
 import torch.nn as nn
 
@@ -78,6 +79,31 @@ default_time_keys = (
 )
 
 
+def get_border_crossing_pops(
+    data, dims=("x", "y"), binsize=500, binstep=50, pre=-1000, post=1000, **kwargs
+):
+    out = {}
+    for dim in dims:
+        tzs = npa.sample_time_within_times(data)
+        b_times = data["first_border_crossing_{}".format(dim)]
+        mask = b_times.rs_isnan()
+        b_signs = data["first_border_crossing_{}_dir".format(dim)]
+        new_bts = []
+        for i, b_t in enumerate(b_times):
+            new_bt = np.zeros(len(b_t))
+            m_i = mask[i]
+            new_bt[m_i] = tzs[i][m_i]
+            new_bt[~m_i] = b_t[~m_i]
+            new_bts.append(new_bt)
+        new_bts = gio.ResultSequence(new_bts)
+
+        pop, xs = get_regional_populations(
+            data, binsize, pre, post, binstep, time_zero=new_bts
+        )
+        out[dim] = pop, xs, b_signs, mask.rs_not(), new_bts
+    return out
+
+
 def get_times(data, time_keys=default_time_keys, ref_key="nav_start"):
     return list(
         {m: (data[m][sess_ind] - data[ref_key][sess_ind]).to_numpy() for m in time_keys}
@@ -117,6 +143,15 @@ def subtract_checkpoint_mu(neur, xs, times):
     pts = get_checkpoint_pts(neur, xs, times)
     mu = np.nanmean(pts, axis=-1, keepdims=True)
     return neur - mu
+
+
+def make_rotation_masker(target_rot, wid=np.pi / 2):
+    def rm(x):
+        rad = u.normalize_periodic_range(np.arctan2(*x.T) - target_rot)
+
+        return np.logical_and(-wid / 2 <= rad, wid / 2 > rad)
+
+    return rm
 
 
 @gpl.ax_adder()
@@ -188,6 +223,25 @@ def side_decoder(
         )
         outs.append(out_i)
     return u.aggregate_dictionary(outs)
+
+
+def make_decoder_masking_data(dec_out, xs, correct_only=True):
+    projs = u.make_ragged_projection_array_over_folds(
+        xs,
+        dec_out["test_decision_function"],
+        dec_out["test_indices"],
+    )
+    if correct_only:
+        targs = u.make_ragged_projection_array_over_folds(
+            xs,
+            dec_out["test_targets"],
+            dec_out["test_indices"],
+        )
+        targs = 2 * (targs - 0.5)
+        projs = projs * targs
+    else:
+        projs = ragged.abs(projs)
+    return projs
 
 
 def cluster_decoding(
@@ -1407,6 +1461,13 @@ default_region_dict = {
     "PMd": ("PMd",),
     "all": None,
 }
+
+
+def get_regional_populations(data, *args, region_dict=default_region_dict, **kwargs):
+    out = {}
+    for k, region in region_dict.items():
+        out[k], xs = data.get_populations(*args, regions=region, **kwargs)
+    return out, xs
 
 
 def decode_regions(func, *args, region_list=default_region_dict, **kwargs):
