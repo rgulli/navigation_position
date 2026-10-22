@@ -232,10 +232,10 @@ def com_dynamics_diff(X, y, com_mask, cv=skms.LeaveOneOut):
         m0_c_tr = np.logical_and(y_tr == 0, m_s_tr)
         m1_c_tr = np.logical_and(y_tr == 1, m_s_tr)
 
-        X_0s = u.make_unit_vector(np.mean(X_tr[m0_tr], axis=0).T).T
-        X_1s = u.make_unit_vector(np.mean(X_tr[m1_tr], axis=0).T).T
-        X_0c = u.make_unit_vector(np.mean(X_tr[m0_c_tr], axis=0).T).T
-        X_1c = u.make_unit_vector(np.mean(X_tr[m1_c_tr], axis=0).T).T
+        X_0s = np.mean(X_tr[m0_tr], axis=0)
+        X_1s = np.mean(X_tr[m1_tr], axis=0)
+        X_0c = np.mean(X_tr[m0_c_tr], axis=0)
+        X_1c = np.mean(X_tr[m1_c_tr], axis=0)
 
         diff_uv = u.make_unit_vector((X_0s - X_1s).T).T[None]
         comb_uv = u.make_unit_vector(np.mean((X_0s, X_1s), axis=0).T).T[None]

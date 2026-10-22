@@ -1,24 +1,24 @@
-import numpy as np
-import scipy.special as sps
 import functools as ft
 import re
-import pyro
-import pyro.distributions as distribs
-import torch
-import torch.nn as nn
+
 import awkward as ak
-import ragged
-
-import sklearn.preprocessing as skp
-import sklearn.model_selection as skms
-
+import general.neural_analysis as na
+import general.plotting as gpl
 import general.pyro_utility as gpu
 import general.torch.feedforward as gtf
 import general.utility as u
-import general.neural_analysis as na
-import general.plotting as gpl
-import navigation_position.auxiliary as npa
+import numpy as np
+import pyro
+import pyro.distributions as distribs
+import ragged
+import scipy.special as sps
+import sklearn.model_selection as skms
+import sklearn.preprocessing as skp
+import torch
+from torch import nn
+
 import navigation_position.analysis.representations as npra
+import navigation_position.auxiliary as npa
 
 
 @gpl.ax_adder()
@@ -916,7 +916,7 @@ def session_cond_decoder(
     if ragged_trials:
         con = ragged.concat
         cond_func = recode_hd_position_soft_jagged
-        if "chop_length" not in kwargs.keys():
+        if "chop_length" not in kwargs:
             raise AttributeError("chop_length must be set for ragged input")
     else:
         con = np.concatenate

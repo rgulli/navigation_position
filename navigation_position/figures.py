@@ -128,6 +128,7 @@ class ViewFigure(pu.Figure):
                 spec_file_template=spec,
             )
             reps = npav.get_network_view_representations(imgs)
+            import tensorflow as tf
             imgs_low = tf.image.resize_with_pad(imgs, img_size, img_size).numpy()
             self.data[(key, kind)] = (img_info, reps, imgs_low)
         img_info, reps, imgs_low = self.data[(key, kind)]
@@ -238,17 +239,17 @@ class ChangeOfMindBehavior(NavigationFigure):
 
         if self.data.get(data_key) is None or recompute:
             self.panel_behavioral_traj(recompute=recompute)
-        masks, times, out_bhv, xs, corr_trls = self.data[data_key]
+        masks, times, _, _, corr_trls = self.data[data_key]
         data = self.get_trial_string_data()
-        fracs = np.array(list(np.mean(x) for x in masks))
+        fracs = np.array([np.mean(x) for x in masks])
         gpl.plot_trace_werr([0], fracs[:, None], conf95=True, ax=ax_frac)
         ax_frac.scatter(np.zeros_like(fracs), fracs)
         gpl.add_hlines(0, ax_frac)
 
         stay_corr = np.array(
-            list(np.mean(x[~masks[i]]) for i, x in enumerate(corr_trls))
+            [np.mean(x[~masks[i]]) for i, x in enumerate(corr_trls)]
         )
-        com_corr = np.array(list(np.mean(x[masks[i]]) for i, x in enumerate(corr_trls)))
+        com_corr = np.array([np.mean(x[masks[i]]) for i, x in enumerate(corr_trls)])
         corrs = np.stack((stay_corr, com_corr), axis=1)
         ax_corr.plot([0, 1], corrs.T)
         gpl.add_hlines(0.5, ax_corr)
@@ -257,7 +258,7 @@ class ChangeOfMindBehavior(NavigationFigure):
         time_start = self.params.get("time_zero_field")
         times = times - data[time_start]
         comb_times = np.concatenate(
-            list(t[masks[i]].to_numpy() for i, t in enumerate(times))
+            [t[masks[i]].to_numpy() for i, t in enumerate(times)]
         )
         ax_time.hist(comb_times)
         gpl.clean_plot(ax_time, 0)
@@ -453,7 +454,7 @@ class ChangeOfMindFigure(NavigationFigure):
                 )
                 out_dict[k] = out_neur_tzf, out_neur_com_tz
             self.data[key] = out_bhv, out_dict
-        masks, times, out_bv, xs = self.data[key][0]
+        masks, times, _, _ = self.data[key][0]
         pops_tzf, xs_tzf_r = self.data[key][1][region][0]
 
         proj = np.squeeze(pops_tzf[sess_ind]["test_projection"])
@@ -636,17 +637,17 @@ class ChangeOfMindFigure(NavigationFigure):
 
         if self.data.get(data_key) is None or recompute:
             self.panel_behavioral_traj(recompute=recompute)
-        masks, times, out_bhv, xs, corr_trls = self.data[data_key]
+        masks, times, _, _, corr_trls = self.data[data_key]
         data = self.get_trial_string_data()
-        fracs = np.array(list(np.mean(x) for x in masks))
+        fracs = np.array([np.mean(x) for x in masks])
         gpl.plot_trace_werr([0], fracs[:, None], conf95=True, ax=ax_frac)
         ax_frac.scatter(np.zeros_like(fracs), fracs)
         gpl.add_hlines(0, ax_frac)
 
         stay_corr = np.array(
-            list(np.mean(x[~masks[i]]) for i, x in enumerate(corr_trls))
+            [np.mean(x[~masks[i]]) for i, x in enumerate(corr_trls)]
         )
-        com_corr = np.array(list(np.mean(x[masks[i]]) for i, x in enumerate(corr_trls)))
+        com_corr = np.array([np.mean(x[masks[i]]) for i, x in enumerate(corr_trls)])
         corrs = np.stack((stay_corr, com_corr), axis=1)
         ax_corr.plot([0, 1], corrs.T)
         gpl.add_hlines(0.5, ax_corr)
@@ -655,7 +656,7 @@ class ChangeOfMindFigure(NavigationFigure):
         time_start = self.params.get("time_zero_field")
         times = times - data[time_start]
         comb_times = np.concatenate(
-            list(t[masks[i]].to_numpy() for i, t in enumerate(times))
+            [t[masks[i]].to_numpy() for i, t in enumerate(times)]
         )
         ax_time.hist(comb_times)
         gpl.clean_plot(ax_time, 0)
@@ -796,7 +797,7 @@ class FixationAnalysis(NavigationFigure):
                     "",
                     xy1,
                     xytext=xy2,
-                    arrowprops=dict(arrowstyle="<-"),
+                    arrowprops={"arrowstyle": "<-"},
                 )
             axs[i].scatter(*xy_i.T, s=1, color=colors[i])
             prev = xy_i
@@ -842,7 +843,7 @@ class FixationAnalysis(NavigationFigure):
             try:
                 vmax_k = np.max(
                     np.mean(
-                        np.stack(list(i for i in res_k if i is not None), axis=0),
+                        np.stack([i for i in res_k if i is not None], axis=0),
                         axis=(0, -1, -2),
                     )
                 )
