@@ -2,8 +2,9 @@ import numpy as np
 
 
 def simulate_stay_switch_strategy(
-    data, session_ind=0, pos_keys=["IsEast", "IsNorth"], corr_key="IsEast"
+    data, session_ind=0, pos_keys=("IsEast", "IsNorth"), corr_key="IsEast"
 ):
+    pos_keys = list(pos_keys)
     pos = data[pos_keys][session_ind].to_numpy()
     targ = data[corr_key][session_ind].to_numpy()
     predicted_choice = np.zeros(len(pos))
@@ -30,13 +31,10 @@ def simulate_stay_switch_strategy(
 def simulate_see_boundary_strategy(
     data,
     session_ind=0,
-    pos_keys=["IsEast", "IsNorth"],
+    pos_keys=("IsEast", "IsNorth"),
     corr_key="IsEast",
     rot_key="choice_rotation",
 ):
     pos = data[pos_keys][session_ind]
     targ = data[corr_key][session_ind]
     rot = data[rot_key][session_ind]
-
-    
-    

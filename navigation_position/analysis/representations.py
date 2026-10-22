@@ -1,31 +1,31 @@
-import numpy as np
-import scipy.signal as sig
-import scipy.linalg as spla
-import sklearn.neighbors as sknn
-import sklearn.metrics.pairwise as skmp
-import sklearn.svm as skm
-import sklearn.model_selection as skms
-import sklearn.linear_model as sklm
-import sklearn.kernel_approximation as skka
-import sklearn.pipeline as skpipe
-import sklearn.cluster as skcluster
-import sklearn.preprocessing as skp
-import imblearn.under_sampling as imb_us
 import itertools as it
-import pandas as pd
+
 import awkward as ak
-import ragged
-
-import torch.nn as nn
-
-import rsatoolbox as rsa
-import general.neural_analysis as na
-import general.utility as u
 import general.data_io as gio
-import general.torch.training as gtt
-import general.torch.rnns as gtrnn
+import general.neural_analysis as na
 import general.plotting as gpl
+import general.torch.rnns as gtrnn
+import general.torch.training as gtt
+import general.utility as u
+import imblearn.under_sampling as imb_us
+import numpy as np
+import pandas as pd
+import ragged
+import rsatoolbox as rsa
+import scipy.signal as sig
+import sklearn.cluster as skcluster
+import sklearn.kernel_approximation as skka
+import sklearn.linear_model as sklm
+import sklearn.metrics.pairwise as skmp
+import sklearn.model_selection as skms
+import sklearn.neighbors as sknn
+import sklearn.pipeline as skpipe
+import sklearn.preprocessing as skp
+import sklearn.svm as skm
+from torch import nn
+
 import navigation_position.auxiliary as npa
+
 from . import view as npav
 
 
@@ -80,14 +80,21 @@ default_time_keys = (
 
 
 def get_border_crossing_pops(
-    data, dims=("x", "y"), binsize=500, binstep=50, pre=-1000, post=1000, **kwargs
+    data,
+    dims=("x", "y"),
+    binsize=500,
+    binstep=50,
+    pre=-1000,
+    post=1000,
+    alt_tzf=None,
+    **kwargs,
 ):
     out = {}
     for dim in dims:
         tzs = npa.sample_time_within_times(data)
-        b_times = data["first_border_crossing_{}".format(dim)]
+        b_times = data[f"first_border_crossing_{dim}"]
         mask = b_times.rs_isnan()
-        b_signs = data["first_border_crossing_{}_dir".format(dim)]
+        b_signs = data[f"first_border_crossing_{dim}_dir"]
         new_bts = []
         for i, b_t in enumerate(b_times):
             new_bt = np.zeros(len(b_t))
@@ -95,20 +102,28 @@ def get_border_crossing_pops(
             new_bt[m_i] = tzs[i][m_i]
             new_bt[~m_i] = b_t[~m_i]
             new_bts.append(new_bt)
-        new_bts = gio.ResultSequence(new_bts)
+        if alt_tzf is None:
+            time_dict = {"time_zero": gio.ResultSequence(new_bts)}
+        else:
+            time_dict = {"time_zero_field": alt_tzf}
 
         pop, xs = get_regional_populations(
-            data, binsize, pre, post, binstep, time_zero=new_bts
+            data,
+            binsize,
+            pre,
+            post,
+            binstep,
+            **time_dict,
         )
         out[dim] = pop, xs, b_signs, mask.rs_not(), new_bts
     return out
 
 
 def get_times(data, time_keys=default_time_keys, ref_key="nav_start"):
-    return list(
+    return [
         {m: (data[m][sess_ind] - data[ref_key][sess_ind]).to_numpy() for m in time_keys}
         for sess_ind in range(len(data))
-    )
+    ]
 
 
 def get_checkpoint_pts(neur, xs, times):
@@ -207,7 +222,7 @@ def side_decoder(
 ):
     outs = []
     if masks is None:
-        masks = list(np.ones(len(X), dtype=bool) for X in Xs)
+        masks = [np.ones(len(X), dtype=bool) for X in Xs]
     for i, X_i in enumerate(Xs):
         y_i = label_func(ys[i], ind=ind)
         m_i = masks[i]
@@ -350,17 +365,17 @@ def sparse_decoding(X_tc, y_tc, n_folds=100, test_size=0.1, est=skm.LinearSVC):
         X_te = X_tc[te_inds]
         y_te = y_tc[te_inds]
         X_tc_proj = np.stack(
-            list(
+            [
                 model.decision_function(pipe.transform(X_te[..., j]))
                 for j in range(X_tc.shape[-1])
-            ),
+            ],
             axis=-1,
         )
         test_tc_score = np.stack(
-            list(
+            [
                 model.score(pipe.transform(X_te[..., j]), y_te[..., j])
                 for j in range(X_tc.shape[-1])
-            ),
+            ],
             axis=-1,
         )
         X_te_flat = u.combine_dimensions(X_te, 0, 2)
@@ -614,11 +629,11 @@ def decode_strict_fixation_seq(
         tzf=tzf,
         **kwargs,
     )
-    out_dicts = list([x] for x in initial)
+    out_dicts = [[x] for x in initial]
 
     for i in range(n):
         out_i = decode_strict_fixation(data, labels, i, tzf=tzf, **kwargs)
-        list(out_dicts[j].append(x) for j, x in enumerate(out_i) if x is not None)
+        [out_dicts[j].append(x) for j, x in enumerate(out_i) if x is not None]
     out = []
     for od in out_dicts:
         if od[0] is None:
@@ -717,7 +732,7 @@ def get_fixation_pops(
         pops_ns.append(pops)
         starts.append(xy_starts)
         ends.append(xy_ends)
-        ns_track.append(list((n,) * len(x) for x in xy_starts))
+        ns_track.append([(n,) * len(x) for x in xy_starts])
     info = data[list(keys)]
     outs = []
     for i, info_i in enumerate(info):
@@ -897,8 +912,8 @@ def decode_side_fixation(
     lr_thresh=0,
     **kwargs,
 ):
-    fix_starts, xy_starts = npav.get_nth_fixation(data, n, tzf=tzf)
-    fix_ends, xy_ends = npav.get_nth_fixation(
+    fix_starts, _ = npav.get_nth_fixation(data, n, tzf=tzf)
+    fix_ends, _ = npav.get_nth_fixation(
         data, n + 1, start_or_end="start", tzf=tzf
     )
 
@@ -983,14 +998,14 @@ def position_populations(
     binsize=100,
     binstep=100,
     pos_keys=("pos_x", "pos_y"),
-    spks="spikeTimes",
+    spks_field="spikeTimes",
     n_neurs="n_neurs",
     concat_trials=True,
     regions=None,
     regions_key="neur_regions",
     **kwargs,
 ):
-    spks_all = data[spks]
+    spks_all = data[spks_field]
     pos_all = data[list(pos_keys)]
     if start_field is not None:
         start_ts = data[start_field]
@@ -1054,7 +1069,7 @@ def format_conjunctions_for_decoding(pop_dict, sess_ind):
     label_dict = {}
     cond_num = 0
     for i, (k, pd_) in enumerate(pop_dict.items()):
-        pd_sess = list(x[sess_ind] for x in pd_)
+        pd_sess = [x[sess_ind] for x in pd_]
         for j, pd_ij in enumerate(pd_sess):
             n_trls = pd_ij.shape[2]
             labels.extend((cond_num,) * n_trls)
@@ -1172,12 +1187,12 @@ def border_crossing_masks(
     crossing_fields=("relevant_crossing_x", "relevant_crossing_y"),
     time_range=("nav_start", "nav_end"),
 ):
-    cross_trials_sep = list(data[cf].rs_isnan().rs_not() for cf in crossing_fields)
-    cross_trials_sep_times = list(data[cf] for cf in crossing_fields)
+    cross_trials_sep = [data[cf].rs_isnan().rs_not() for cf in crossing_fields]
+    cross_trials_sep_times = [data[cf] for cf in crossing_fields]
     cross_trials = cross_trials_sep[0]
-    cross_times = list(np.zeros(len(cf)) for cf in cross_trials_sep[0])
+    cross_times = [np.zeros(len(cf)) for cf in cross_trials_sep[0]]
     non_cross_trials = cross_trials.rs_not()
-    non_cross_times = list(np.zeros(len(cf)) for cf in cross_trials_sep[0])
+    non_cross_times = [np.zeros(len(cf)) for cf in cross_trials_sep[0]]
     time_sample = data[list(time_range)]
     rng = np.random.default_rng()
     for i, ct in enumerate(cross_times):
@@ -1237,11 +1252,11 @@ def make_mask_intersection(
     if and_mask is not None:
         data = data.mask(and_mask)
     masks = make_variable_masks(data, dec_variables=new_dict)
-    first_mask = list(ms[0] for ms in masks.values())
+    first_mask = [ms[0] for ms in masks.values()]
     intersection_inds = []
     comb_masks = []
     for i in range(len(first_mask[0])):
-        comb_mask = np.stack(list(fm[i] for fm in first_mask), axis=1)
+        comb_mask = np.stack([fm[i] for fm in first_mask], axis=1)
         combs, inds = np.unique(comb_mask, axis=0, return_inverse=True)
         comb_masks.append(combs)
         intersection_inds.append(inds)
@@ -1342,7 +1357,7 @@ def make_variable_generalization_masks(
             m2_p = m2.rs_and(c1)
             m1_n = m1.rs_and(c2)
             m2_n = m2.rs_and(c2)
-            fcv = "{} x {}".format(k, cv)
+            fcv = f"{k} x {cv}"
             masks_gen[fcv] = ((m1_p, m2_p), (m1_n, m2_n))
     return masks_gen
 
@@ -1397,7 +1412,7 @@ def _make_shifted_data_masks(shift, data, *masks):
             new_masks[j].append(m_ij[m_bwd])
 
     data_masked = data.mask(gio.ResultSequence(fwd_mask))
-    new_masks = list(gio.ResultSequence(m) for m in new_masks)
+    new_masks = [gio.ResultSequence(m) for m in new_masks]
     return data_masked, new_masks
 
 

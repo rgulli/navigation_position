@@ -1,14 +1,34 @@
+import itertools as it
+
+import awkward as ak
+import general.plotting as gpl
+import general.utility as u
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal as sig
-import matplotlib.pyplot as plt
-import sklearn.manifold as skm
 import sklearn.decomposition as skd
+import sklearn.manifold as skm
 import sklearn.preprocessing as skp
-import itertools as it
-import awkward as ak
 
-import general.utility as u
-import general.plotting as gpl
+
+def plot_all_maps(b_y, b_x, maps, ax_wid=2, cmap="Blues", **kwargs):
+    n_axs = maps.shape[0]
+    nr = int(np.ceil(np.sqrt(n_axs)))
+    nc = int(np.ceil(n_axs / nr))
+    f, axs = plt.subplots(
+        nr,
+        nc,
+        figsize=(nc * ax_wid * 1.2, nr * ax_wid),
+        squeeze=False,  # sharex="all", sharey="all"
+    )
+    axs = axs.flatten()
+    for i, pmap in enumerate(maps):
+        m = gpl.pcolormesh(b_y, b_x, pmap, ax=axs[i], cmap=cmap)
+        axs[i].set_xticks(b_y[[0, -1]])
+        axs[i].set_yticks(b_x[[0, -1]])
+        cax = f.colorbar(m, ax=axs[i], cmap=cmap)
+        cax.set_ticks(cax.get_ticks()[[0, -1]])
+    return f, axs
 
 
 def _get_fixation_sims(
@@ -355,7 +375,7 @@ def plot_distance_distribs(conds, rdm, axs=None, fwid=3, colors=None, **kwargs):
 
     for i, ax in enumerate(axs):
         mus = np.array(list(np.mean(distrib) for distrib in comb_lists[i]))
-        gpl.plot_trace_werr(np.expand_dims(mus, 1), [-10], ax=axs[i])
+        gpl.plot_trace_werr(np.expand_dims(mus, 1), [-10], ax=ax)
         gpl.clean_plot(ax, i)
         gpl.add_vlines(0, ax)
 
@@ -372,7 +392,7 @@ def plot_dec_fix_seq(dec, ax=None, **kwargs):
         **kwargs,
     )
     ax.set_xticks(xs)
-    ax.set_xticklabels(["initial"] + list("fix {}".format(x) for x in xs[1:]))
+    ax.set_xticklabels(["initial"] + list(f"fix {x}" for x in xs[1:]))
     gpl.add_hlines(0.5, ax)
 
 
@@ -679,7 +699,7 @@ def plot_pairwise_decoding_results(
             gpl.clean_plot(ax, 0)
         ax1.plot(*cij, lw=wids[i], color=colors[i])
 
-    ax.set_xlabel("time from {}".format(tzf))
+    ax.set_xlabel(f"time from {tzf}")
     ax.set_ylabel("condition decoding")
     gpl.clean_plot(ax1, 1)
     gpl.clean_plot_bottom(ax1)

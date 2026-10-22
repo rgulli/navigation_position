@@ -1,12 +1,11 @@
 import os
-import scipy.ndimage as snd
+
+import general.data_io as gio
+import general.utility as u
 import numpy as np
 import pandas as pd
+import scipy.ndimage as snd
 import skimage as skimg
-
-import general.utility as u
-import general.data_io as gio
-
 
 BASEFOLDER = "../data/navigation_position/"
 FIGFOLDER = "navigation_position/figs/"
@@ -15,6 +14,12 @@ dated_session_template = "(?P<animal>[a-zA-Z]+)_(?P<date>{date})"
 
 
 REGIONLIST = (None, ("DLPFCv", "DLPFCd"), ("HPC",), ("PMd",))
+REGIONDICT = {
+    "all": None,
+    "dlPFC": ("DLPFCv", "DLPFCd"),
+    "HPC": ("HPC",),
+    "PMd": ("PMd",),
+}
 
 
 def load_sessions(
@@ -320,14 +325,14 @@ def rename_fields(df, *dicts):
             present = list(on in df.columns for on in old_name)
             inds = np.where(present)[0]
             if len(inds) == 0:
-                print("column {} is missing".format(old_name))
+                print(f"column {old_name} is missing")
             else:
                 old_name = old_name[inds[0]]
         if old_name in df.columns:
             rename = df[old_name]
         else:
             rename = np.ones(len(df)) * np.nan
-            print("no {} in the columns".format(old_name))
+            print(f"no {old_name} in the columns")
         df[new_name] = rename
     return df
 
@@ -563,8 +568,8 @@ def _make_sincos_rotation_tc(rot_tc):
     return pd.Series(sins), pd.Series(coss)
 
 
-def get_waypoint_times(xs, ys, targ_xs, targ_ys, get_thr=1, max_wps=5):
-    times_all = list(np.ones(len(xs)) * np.nan for _ in range(max_wps))
+def get_waypoint_times(xs, ys, targ_xs, targ_ys, get_thr=1, max_wps=7):
+    times_all = [np.ones(len(xs)) * np.nan for _ in range(max_wps)]
     n_wps = np.zeros(len(xs))
     for i, xi in enumerate(xs):
         yi = ys.iloc[i]
@@ -574,11 +579,13 @@ def get_waypoint_times(xs, ys, targ_xs, targ_ys, get_thr=1, max_wps=5):
         t_y = targ_ys.iloc[i]
         targ_list = u.check_list(t_x)
         if targ_list or t_x != -1:
-            t_xy_i = np.stack((t_x, t_y), axis=-1)
+            t_xy_i = np.stack((np.squeeze(t_x), np.squeeze(t_y)), axis=-1)
             if len(t_xy_i.shape) == 1:
                 t_xy_i = t_xy_i[None]
             dist_i = np.sqrt(np.sum((xy_i[None] - t_xy_i[:, None]) ** 2, axis=-1))
             times = np.argmin(dist_i, axis=1)
+            if len(times) > len(times_all):
+                print(len(times), len(times_all))
             for j, time in enumerate(times):
                 times_all[j][i] = time
             n_wps[i] = len(times)
@@ -622,8 +629,8 @@ def load_gulli_hashim_data_folder(
             if len(data_all) > len(spikes):
                 diff = len(data_all) - len(spikes)
                 print(
-                    "difference in length between data ({}) and spikes ({})"
-                    "in file {}".format(len(data_all), len(spikes), fl)
+                    f"difference in length between data ({len(data_all)}) and spikes ({len(spikes)})"
+                    f"in file {fl}"
                 )
                 data_all = data_all[:-diff].copy()
             data_all["spikeTimes"] = spikes
@@ -718,6 +725,7 @@ def load_gulli_hashim_data_folder(
         data_all["choice_rotation"] = discretize_rotation(
             data_all["pre_choice_rotation"],
         )
+        data_all["last_choice_right"] = get_last_choices(data_all["chose_right"])
         data_all["last_is_east"] = get_last_choices(data_all["IsEast"])
         data_all["last_choice_white"] = get_last_choices(data_all["chose_white"])
         data_all["last_correct_choice_white"] = get_last_choices(
@@ -736,7 +744,7 @@ def load_gulli_hashim_data_folder(
             data_all["waypoints_y"],
         )
         for i, wp_time in enumerate(waypoint_times):
-            data_all["waypoint_time_{}".format(i + 1)] = wp_time
+            data_all[f"waypoint_time_{i + 1}"] = wp_time
         data_all["n_waypoints"] = n_wpts
 
         out = find_crossings(data_all["pos_x"])

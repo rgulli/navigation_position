@@ -1,11 +1,14 @@
-import numpy as np
-import sklearn.svm as skm
-import matplotlib.pyplot as plt
 import itertools as it
 
-import general.plotting as gpl
-import general.neural_analysis as na
 import general.data_io as gio
+import general.neural_analysis as na
+import general.plotting as gpl
+import general.torch.feedforward as gtfn
+import general.utility as u
+import matplotlib.pyplot as plt
+import numpy as np
+import sklearn.svm as skm
+
 import navigation_position.auxiliary as npa
 
 
@@ -60,7 +63,7 @@ def get_high_view_mask(*args, thresh=25, tbeg=-500, tend=500, **kwargs):
     eps = get_view_trajectories(*args, **kwargs)
     high_masks = []
     for ep in eps:
-        high_mask = np.array(list(np.any(x[:, 1] > 25) for x in ep))
+        high_mask = np.array([np.any(x[:, 1] > 25) for x in ep])
         high_masks.append(high_mask)
     return gio.ResultSequence(high_masks)
 
@@ -84,7 +87,7 @@ def eye_position_map(
     if axs is None:
         n_conds = len(conds_u)
         n = int(np.ceil(np.sqrt(n_conds)))
-        f, axs = plt.subplots(
+        _, axs = plt.subplots(
             n, n, sharex=True, sharey=True, figsize=(n * fwid, n * fwid)
         )
         axs = axs.flatten()
@@ -111,6 +114,45 @@ def eye_position_map(
         axs[i].set_aspect("equal")
         gpl.clean_plot(axs[i], 1)
         gpl.clean_plot_bottom(axs[i])
+
+
+def make_gaze_representation(
+    neur,
+    rot,
+    eye,
+    eye_dim=-1,
+    pos=None,
+    rad_thr=None,
+    n_rot_bins=20,
+    rot_bounds=(-np.pi, np.pi),
+    n_y_bins=10,
+    y_bounds=(-10, 15),
+):
+    """
+    pos is N x 2
+    rot is N x 1
+    eye is N x 2
+    """
+    if rad_thr is not None and pos is not None:
+        pos_c = (pos - np.ones((1, 2)) * 500) / 50
+        rad = np.sqrt(np.sum(pos_c**2, axis=1, keepdims=True))
+        mask = rad > rad_thr
+        rot = rot[mask]
+        eye = eye[mask]
+        neur = neur[mask]
+    y = eye[:, eye_dim]
+    theta = u.sincos_to_radian(*rot.T)
+    pos = np.stack((y, theta), axis=-1)
+    bins = (
+        np.linspace(*y_bounds, n_y_bins + 1),
+        np.linspace(*rot_bounds, n_rot_bins + 1),
+    )
+    b_y, b_x = [b[:-1] + np.diff(b)[0] / 2 for b in bins]
+    occupancy, _ = np.histogramdd(pos, bins=bins)
+    spks = np.zeros((neur.shape[-1],) + occupancy.shape)
+    for i in range(neur.shape[-1]):
+        spks[i] = np.histogramdd(pos, bins=bins, weights=neur[:, i])[0]
+    return spks, occupancy, (b_x, b_y)
 
 
 def decode_feature(
@@ -200,7 +242,7 @@ def combined_generalization_decoding(
 
 def plot_decoding(combined_dict, axs=None, fwid=3):
     if axs is None:
-        f, axs = plt.subplots(
+        _, axs = plt.subplots(
             len(combined_dict), 1, figsize=(1 * fwid, len(combined_dict) * fwid)
         )
     for i, (field, field_dict) in enumerate(combined_dict.items()):

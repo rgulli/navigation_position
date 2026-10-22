@@ -1,20 +1,16 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import sklearn.svm as skm
-import sklearn.model_selection as skms
-import scipy.signal as sig
-import jax
-import jax.random as jr
-import functools as ft
-
+import general.data_io as gio
+import general.hmm_analysis as gua
+import general.neural_analysis as na
 import general.plotting as gpl
 import general.utility as u
-import general.neural_analysis as na
-# import general.unsupervised_analysis as gua
-import general.data_io as gio
-import navigation_position.analysis.representations as npra
-import navigation_position.auxiliary as npa
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy.signal as sig
+import sklearn.model_selection as skms
 
+import navigation_position.analysis.representations as npra
+import navigation_position.analysis.sparse_decoder as npsd
+import navigation_position.auxiliary as npa
 
 default_dec_vars = ("choice side", "correct side", "rule", "white side", "pink side")
 default_balance_vars = {
@@ -134,14 +130,14 @@ def visualize_change_of_mind_dec(
                         axs[i, j].plot(xs, fp, color=color)
 
             if j == 0:
-                axs[i, j].set_ylabel("decoding {}".format(dv))
+                axs[i, j].set_ylabel(f"decoding {dv}")
             gpl.clean_plot(axs[i, j], j)
             if i == 0:
                 axs[i, j].set_title(use_region)
             if i < n_vars - 1:
                 gpl.clean_plot_bottom(axs[i, j])
             else:
-                axs[i, j].set_xlabel("time from {}".format(tzf))
+                axs[i, j].set_xlabel(f"time from {tzf}")
             gpl.add_hlines(chance, axs[i, j])
             gpl.add_vlines(0, axs[i, j])
     return f, axs
@@ -219,12 +215,14 @@ def _detect_switch_time(
 
 
 def com_hmm_states(
-        *args, **kwargs, ):
+    *args,
+    **kwargs,
+):
     return gua.hmm_states_cv(*args, **kwargs)
 
 
-def com_dynamics_diff(X, y, com_mask, cv=skms.LeaveOneOut, recode=True):
-    out_traj = np.zeros((4, X.shape[0], X.shape[-1]))
+def com_dynamics_diff(X, y, com_mask, cv=skms.LeaveOneOut):
+    out_traj = np.zeros((5, X.shape[0], X.shape[-1]))
     for i, (tr_inds, te_inds) in enumerate(cv().split(X, y)):
         X_tr = X[tr_inds]
         y_tr = y[tr_inds]
@@ -243,7 +241,10 @@ def com_dynamics_diff(X, y, com_mask, cv=skms.LeaveOneOut, recode=True):
         comb_uv = u.make_unit_vector(np.mean((X_0s, X_1s), axis=0).T).T[None]
         cs1_uv = u.make_unit_vector((X_0c - X_1s).T).T[None]
         cs2_uv = u.make_unit_vector((X_1c - X_0s).T).T[None]
-        uv_group = np.stack((diff_uv, comb_uv, cs1_uv, cs2_uv), axis=0)
+        comb_uv = u.make_unit_vector(
+            np.mean((X_0c, X_1c), axis=0).T - np.mean((X_0s, X_1s), axis=0).T
+        ).T[None]
+        uv_group = np.stack((diff_uv, comb_uv, cs1_uv, cs2_uv, comb_uv), axis=0)
         out_traj[:, i] = np.sum(uv_group * X[te_inds][None], axis=-2)[:, 0]
     return out_traj, y, com_mask
 
@@ -655,6 +656,7 @@ def make_com_predictors(
     fields=fields_all,
     cond_fields=cond_fields_all,
     rot_fields=rot_fields_all,
+    include_dlc=False,
 ):
     predictors_orig, xs = data.get_field_timeseries(
         fields,
@@ -665,23 +667,39 @@ def make_com_predictors(
         binstep=binstep,
         time_zero_field=time_zero_field,
     )
+    if include_dlc:
+        predictors_dlc, _ = npsd.get_all_data(
+            data,
+            binsize=window,
+            binstep=binstep,
+            before=time_begin,
+            after=time_end,
+            tzf1=time_zero_field,
+            include_neural=False,
+            jagged=False,
+        )[0]["dlc"]
     conds = npa.make_unique_conds(data)
     cond_fields = np.array(cond_fields)
     predictors_conds = _norm_cond_predictors(
-        list(po[:, cond_fields] for po in predictors_orig),
+        [po[:, cond_fields] for po in predictors_orig],
         conds,
     )
     predictors_conds = _rad_to_xy_predictors(predictors_conds, (False, False, True))
     predictors_conds = _rotate_xy_predictors(
-        predictors_conds, (0, 1), list(c[:, -1] for c in conds)
+        predictors_conds, (0, 1), [c[:, -1] for c in conds]
     )
     predictors = []
     for i, pc in enumerate(predictors_conds):
-        predictors.append(
-            np.concatenate(
-                (pc, predictors_orig[i][:, np.logical_not(cond_fields)]), axis=1
-            )
+        preds_i = np.concatenate(
+            (
+                pc,
+                predictors_orig[i][:, np.logical_not(cond_fields)],
+            ),
+            axis=1,
         )
+        if include_dlc:
+            preds_i = np.concatenate((preds_i, predictors_dlc[i]), axis=1)
+        predictors.append(preds_i)
     return predictors, xs
 
 
@@ -703,6 +721,7 @@ def template_change_of_mind(
     window=20,
     binstep=10,
     choice_field="chose_right",
+    include_dlc=False,
 ):
     """Determine which trials have predictors indicating change of mind.
 
@@ -743,6 +762,7 @@ def template_change_of_mind(
         time_end=time_end,
         window=window,
         binstep=binstep,
+        include_dlc=include_dlc,
     )
     choice = data[choice_field]
     outs = []
@@ -861,7 +881,7 @@ def visualize_distance_trajectories(data, sess_ind, mask, axs=None, fwid=3, **kw
         d_ij = d_mask[i]
         print(data["correct_trial"][sess_ind][mask].iloc[i])
         tnum = data["Trial"][sess_ind][mask].iloc[i]
-        axs[i].set_title("trial = {}".format(tnum))
+        axs[i].set_title(f"trial = {tnum}")
 
         axs[i].plot(t_ij, label="distance to target")
         axs[i].plot(d_ij, ls="dashed", label="distance to distractor")
